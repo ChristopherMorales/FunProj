@@ -100,44 +100,75 @@ export default function DrawingCanvas({ backgroundImage }: DrawingCanvasProps) {
     link.click();
   }, []);
 
-  // Load background image
+  // Load background image or default
   useEffect(() => {
-    if (!backgroundImage) return;
-
     const backgroundCanvas = backgroundCanvasRef.current;
     if (!backgroundCanvas) return;
 
     const ctx = backgroundCanvas.getContext('2d');
     if (!ctx) return;
 
-    const img = new Image();
-    img.onload = () => {
-      // Clear the canvas
-      ctx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
-      
-      // Calculate scaling to fit the image while maintaining aspect ratio
-      const canvasAspect = backgroundCanvas.width / backgroundCanvas.height;
-      const imgAspect = img.width / img.height;
-      
-      let drawWidth, drawHeight, drawX, drawY;
-      
-      if (imgAspect > canvasAspect) {
-        // Image is wider than canvas aspect ratio
-        drawWidth = backgroundCanvas.width;
-        drawHeight = drawWidth / imgAspect;
-        drawX = 0;
-        drawY = (backgroundCanvas.height - drawHeight) / 2;
-      } else {
-        // Image is taller than canvas aspect ratio
-        drawHeight = backgroundCanvas.height;
-        drawWidth = drawHeight * imgAspect;
-        drawX = (backgroundCanvas.width - drawWidth) / 2;
-        drawY = 0;
-      }
-      
-      ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
-    };
-    img.src = backgroundImage;
+    if (backgroundImage) {
+      // Load user-selected image
+      const img = new Image();
+      img.onload = () => {
+        // Clear the canvas
+        ctx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+        
+        // Calculate scaling to fit the image while maintaining aspect ratio
+        const canvasAspect = backgroundCanvas.width / backgroundCanvas.height;
+        const imgAspect = img.width / img.height;
+        
+        let drawWidth, drawHeight, drawX, drawY;
+        
+        if (imgAspect > canvasAspect) {
+          // Image is wider than canvas aspect ratio
+          drawWidth = backgroundCanvas.width;
+          drawHeight = drawWidth / imgAspect;
+          drawX = 0;
+          drawY = (backgroundCanvas.height - drawHeight) / 2;
+        } else {
+          // Image is taller than canvas aspect ratio
+          drawHeight = backgroundCanvas.height;
+          drawWidth = drawHeight * imgAspect;
+          drawX = (backgroundCanvas.width - drawWidth) / 2;
+          drawY = 0;
+        }
+        
+        ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+      };
+      img.src = backgroundImage;
+    } else {
+      // Load default Bad Bunny image
+      const defaultImg = new Image();
+      defaultImg.onload = () => {
+        // Clear the canvas
+        ctx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+        
+        // Calculate scaling to fit the image while maintaining aspect ratio
+        const canvasAspect = backgroundCanvas.width / backgroundCanvas.height;
+        const imgAspect = defaultImg.width / defaultImg.height;
+        
+        let drawWidth, drawHeight, drawX, drawY;
+        
+        if (imgAspect > canvasAspect) {
+          // Image is wider than canvas aspect ratio
+          drawWidth = backgroundCanvas.width;
+          drawHeight = drawWidth / imgAspect;
+          drawX = 0;
+          drawY = (backgroundCanvas.height - drawHeight) / 2;
+        } else {
+          // Image is taller than canvas aspect ratio
+          drawHeight = backgroundCanvas.height;
+          drawWidth = drawHeight * imgAspect;
+          drawX = (backgroundCanvas.width - drawWidth) / 2;
+          drawY = 0;
+        }
+        
+        ctx.drawImage(defaultImg, drawX, drawY, drawWidth, drawHeight);
+      };
+      defaultImg.src = '/badbunny.jpg';
+    }
   }, [backgroundImage]);
 
   return (

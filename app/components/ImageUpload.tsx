@@ -118,6 +118,7 @@ export default function ImageUpload({ onImageSelect, currentImage }: ImageUpload
               </div>
               <p className="text-xl font-semibold text-slate-200 mb-2">Drop an image here</p>
               <p className="text-slate-400">or click to browse your files</p>
+              <p className="text-sm text-emerald-400 mt-2">💡 Default Bad Bunny background is ready for drawing!</p>
             </div>
             <button
               onClick={() => fileInputRef.current?.click()}
