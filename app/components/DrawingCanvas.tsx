@@ -13,6 +13,25 @@ export default function DrawingCanvas({ backgroundImage }: DrawingCanvasProps) {
   const [brushSize, setBrushSize] = useState(5);
   const [brushColor, setBrushColor] = useState('#000000');
   const [tool, setTool] = useState<'pen' | 'eraser'>('pen');
+  const [zoom, setZoom] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isPanning, setIsPanning] = useState(false);
+  const [lastPanX, setLastPanX] = useState(0);
+  const [lastPanY, setLastPanY] = useState(0);
+  const [initialPinchDistance, setInitialPinchDistance] = useState(0);
+  const [initialZoom, setInitialZoom] = useState(1);
+
+  // Calculate distance between two touch points
+  const getTouchDistance = useCallback((touches: React.TouchList) => {
+    if (touches.length < 2) return 0;
+    const touch1 = touches[0];
+    const touch2 = touches[1];
+    return Math.sqrt(
+      Math.pow(touch2.clientX - touch1.clientX, 2) + 
+      Math.pow(touch2.clientY - touch1.clientY, 2)
+    );
+  }, []);
 
   // Get coordinates from mouse or touch event
   const getEventCoordinates = useCallback((e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
@@ -41,14 +60,40 @@ export default function DrawingCanvas({ backgroundImage }: DrawingCanvasProps) {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
+    // Adjust for zoom and pan
+    const adjustedX = (x * scaleX - panX) / zoom;
+    const adjustedY = (y * scaleY - panY) / zoom;
+
     return {
-      x: x * scaleX,
-      y: y * scaleY
+      x: adjustedX,
+      y: adjustedY
     };
-  }, []);
+  }, [zoom, panX, panY]);
 
   const startDrawing = useCallback((e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault(); // Prevent scrolling on touch
+    
+    // Check if it's a pinch or pan gesture (two finger touch)
+    if ('touches' in e && e.touches.length === 2) {
+      const distance = getTouchDistance(e.touches);
+      setInitialPinchDistance(distance);
+      setInitialZoom(zoom);
+      setIsPanning(true);
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        setLastPanX(e.touches[0].clientX);
+        setLastPanY(e.touches[0].clientY);
+      }
+      return;
+    }
+    
+    if (e.type === 'mousedown' && 'button' in e && e.button === 2) {
+      setIsPanning(true);
+      setLastPanX(e.clientX);
+      setLastPanY(e.clientY);
+      return;
+    }
+    
     setIsDrawing(true);
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -59,10 +104,56 @@ export default function DrawingCanvas({ backgroundImage }: DrawingCanvasProps) {
 
     ctx.beginPath();
     ctx.moveTo(x, y);
-  }, [getEventCoordinates]);
+  }, [getEventCoordinates, getTouchDistance, zoom]);
 
   const draw = useCallback((e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault(); // Prevent scrolling on touch
+    
+    if (isPanning) {
+      if ('touches' in e && e.touches.length === 2) {
+        // Handle pinch zoom
+        const currentDistance = getTouchDistance(e.touches);
+        if (initialPinchDistance > 0) {
+          const scale = currentDistance / initialPinchDistance;
+          const newZoom = Math.min(Math.max(initialZoom * scale, 0.2), 5);
+          setZoom(newZoom);
+        }
+        
+        // Handle pan with two fingers
+        const currentX = e.touches[0].clientX;
+        const currentY = e.touches[0].clientY;
+        const deltaX = currentX - lastPanX;
+        const deltaY = currentY - lastPanY;
+        
+        setPanX(prev => prev + deltaX);
+        setPanY(prev => prev + deltaY);
+        setLastPanX(currentX);
+        setLastPanY(currentY);
+      } else {
+        // Handle single finger or mouse pan
+        let currentX, currentY;
+        
+        if ('touches' in e && e.touches.length >= 1) {
+          currentX = e.touches[0].clientX;
+          currentY = e.touches[0].clientY;
+        } else if ('clientX' in e) {
+          currentX = e.clientX;
+          currentY = e.clientY;
+        } else {
+          return;
+        }
+        
+        const deltaX = currentX - lastPanX;
+        const deltaY = currentY - lastPanY;
+        
+        setPanX(prev => prev + deltaX);
+        setPanY(prev => prev + deltaY);
+        setLastPanX(currentX);
+        setLastPanY(currentY);
+      }
+      return;
+    }
+    
     if (!isDrawing) return;
 
     const canvas = canvasRef.current;
@@ -86,10 +177,11 @@ export default function DrawingCanvas({ backgroundImage }: DrawingCanvasProps) {
     ctx.stroke();
     ctx.beginPath();
     ctx.moveTo(x, y);
-  }, [isDrawing, brushSize, brushColor, tool, getEventCoordinates]);
+  }, [isDrawing, isPanning, brushSize, brushColor, tool, getEventCoordinates, lastPanX, lastPanY, getTouchDistance, initialPinchDistance, initialZoom]);
 
   const stopDrawing = useCallback(() => {
     setIsDrawing(false);
+    setIsPanning(false);
   }, []);
 
   const clearCanvas = useCallback(() => {
@@ -129,7 +221,29 @@ export default function DrawingCanvas({ backgroundImage }: DrawingCanvasProps) {
     link.click();
   }, []);
 
-  // Load background image or default
+  // Zoom functions
+  const zoomIn = useCallback(() => {
+    setZoom(prev => Math.min(prev * 1.2, 5)); // Max zoom 5x
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    setZoom(prev => Math.max(prev / 1.2, 0.2)); // Min zoom 0.2x
+  }, []);
+
+  const resetZoom = useCallback(() => {
+    setZoom(1);
+    setPanX(0);
+    setPanY(0);
+  }, []);
+
+  // Wheel zoom handler
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom(prev => Math.min(Math.max(prev * zoomFactor, 0.2), 5));
+  }, []);
+
+  // Load background image or default with zoom and pan
   useEffect(() => {
     const backgroundCanvas = backgroundCanvasRef.current;
     if (!backgroundCanvas) return;
@@ -137,68 +251,71 @@ export default function DrawingCanvas({ backgroundImage }: DrawingCanvasProps) {
     const ctx = backgroundCanvas.getContext('2d');
     if (!ctx) return;
 
+    const drawImage = (img: HTMLImageElement) => {
+      // Clear the canvas
+      ctx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+      
+      // Save context state
+      ctx.save();
+      
+      // Apply zoom and pan transformations
+      ctx.translate(panX, panY);
+      ctx.scale(zoom, zoom);
+      
+      // Calculate scaling to fit the image while maintaining aspect ratio
+      const canvasAspect = backgroundCanvas.width / backgroundCanvas.height;
+      const imgAspect = img.width / img.height;
+      
+      let drawWidth, drawHeight, drawX, drawY;
+      
+      if (imgAspect > canvasAspect) {
+        // Image is wider than canvas aspect ratio
+        drawWidth = backgroundCanvas.width;
+        drawHeight = drawWidth / imgAspect;
+        drawX = 0;
+        drawY = (backgroundCanvas.height - drawHeight) / 2;
+      } else {
+        // Image is taller than canvas aspect ratio
+        drawHeight = backgroundCanvas.height;
+        drawWidth = drawHeight * imgAspect;
+        drawX = (backgroundCanvas.width - drawWidth) / 2;
+        drawY = 0;
+      }
+      
+      ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+      
+      // Restore context state
+      ctx.restore();
+    };
+
     if (backgroundImage) {
       // Load user-selected image
       const img = new Image();
-      img.onload = () => {
-        // Clear the canvas
-        ctx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
-        
-        // Calculate scaling to fit the image while maintaining aspect ratio
-        const canvasAspect = backgroundCanvas.width / backgroundCanvas.height;
-        const imgAspect = img.width / img.height;
-        
-        let drawWidth, drawHeight, drawX, drawY;
-        
-        if (imgAspect > canvasAspect) {
-          // Image is wider than canvas aspect ratio
-          drawWidth = backgroundCanvas.width;
-          drawHeight = drawWidth / imgAspect;
-          drawX = 0;
-          drawY = (backgroundCanvas.height - drawHeight) / 2;
-        } else {
-          // Image is taller than canvas aspect ratio
-          drawHeight = backgroundCanvas.height;
-          drawWidth = drawHeight * imgAspect;
-          drawX = (backgroundCanvas.width - drawWidth) / 2;
-          drawY = 0;
-        }
-        
-        ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
-      };
+      img.onload = () => drawImage(img);
       img.src = backgroundImage;
     } else {
       // Load default Bad Bunny image
       const defaultImg = new Image();
-      defaultImg.onload = () => {
-        // Clear the canvas
-        ctx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
-        
-        // Calculate scaling to fit the image while maintaining aspect ratio
-        const canvasAspect = backgroundCanvas.width / backgroundCanvas.height;
-        const imgAspect = defaultImg.width / defaultImg.height;
-        
-        let drawWidth, drawHeight, drawX, drawY;
-        
-        if (imgAspect > canvasAspect) {
-          // Image is wider than canvas aspect ratio
-          drawWidth = backgroundCanvas.width;
-          drawHeight = drawWidth / imgAspect;
-          drawX = 0;
-          drawY = (backgroundCanvas.height - drawHeight) / 2;
-        } else {
-          // Image is taller than canvas aspect ratio
-          drawHeight = backgroundCanvas.height;
-          drawWidth = drawHeight * imgAspect;
-          drawX = (backgroundCanvas.width - drawWidth) / 2;
-          drawY = 0;
-        }
-        
-        ctx.drawImage(defaultImg, drawX, drawY, drawWidth, drawHeight);
-      };
+      defaultImg.onload = () => drawImage(defaultImg);
       defaultImg.src = '/badbunny.jpg';
     }
-  }, [backgroundImage]);
+  }, [backgroundImage, zoom, panX, panY]);
+
+  // Apply zoom and pan to drawing canvas context
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Reset transform
+    ctx.resetTransform();
+    
+    // Apply zoom and pan transformations to drawing canvas
+    ctx.translate(panX, panY);
+    ctx.scale(zoom, zoom);
+  }, [zoom, panX, panY]);
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -273,6 +390,39 @@ export default function DrawingCanvas({ backgroundImage }: DrawingCanvasProps) {
           </button>
         </div>
 
+        {/* Zoom Controls */}
+        <div className="flex items-center gap-3 bg-slate-700/50 px-4 py-3 rounded-xl min-h-[60px]">
+          <label className="text-xs md:text-sm font-semibold text-slate-200 flex items-center gap-2 whitespace-nowrap">
+            <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+            </svg>
+            Zoom:
+          </label>
+          <div className="flex gap-2">
+            <button
+              onClick={zoomOut}
+              className="px-3 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg transition-all duration-200 text-sm font-medium"
+            >
+              -
+            </button>
+            <span className="text-xs md:text-sm text-center font-bold text-cyan-400 bg-slate-900/50 px-3 py-2 rounded min-w-[60px]">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              onClick={zoomIn}
+              className="px-3 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg transition-all duration-200 text-sm font-medium"
+            >
+              +
+            </button>
+            <button
+              onClick={resetZoom}
+              className="px-3 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg transition-all duration-200 text-sm font-medium"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
         {/* Action Buttons */}
         <div className="flex gap-2 md:gap-3">
           <button
@@ -296,32 +446,44 @@ export default function DrawingCanvas({ backgroundImage }: DrawingCanvasProps) {
         </div>
       </div>
 
-              {/* Canvas Container */}
-        <div className="relative border-2 border-slate-600/50 rounded-2xl overflow-hidden shadow-2xl bg-slate-900/50 backdrop-blur-sm hover:border-emerald-500/50 transition-all duration-300 w-full max-w-full">
-          {/* Background Canvas */}
-          <canvas
-            ref={backgroundCanvasRef}
-            width={800}
-            height={600}
-            className="absolute top-0 left-0 w-full h-auto max-w-full"
-          />
-          
-          {/* Drawing Canvas */}
-          <canvas
-            ref={canvasRef}
-            width={800}
-            height={600}
-            className="relative cursor-crosshair w-full h-auto max-w-full touch-none"
-            onMouseDown={startDrawing}
-            onMouseMove={draw}
-            onMouseUp={stopDrawing}
-            onMouseLeave={stopDrawing}
-            onTouchStart={startDrawing}
-            onTouchMove={draw}
-            onTouchEnd={stopDrawing}
-            onTouchCancel={stopDrawing}
-          />
-        </div>
+      {/* Help Text for Zoom and Pan */}
+      <div className="text-center text-slate-400 text-sm max-w-2xl mx-auto bg-slate-800/50 px-4 py-3 rounded-xl backdrop-blur-sm">
+        <p className="mb-1">
+          <span className="font-semibold text-cyan-400">Zoom:</span> Use mouse wheel or zoom buttons
+        </p>
+        <p>
+          <span className="font-semibold text-emerald-400">Pan:</span> Right-click and drag (desktop) or two-finger drag (mobile)
+        </p>
+      </div>
+
+      {/* Canvas Container */}
+      <div className="relative border-2 border-slate-600/50 rounded-2xl overflow-hidden shadow-2xl bg-slate-900/50 backdrop-blur-sm hover:border-emerald-500/50 transition-all duration-300 w-full max-w-full">
+        {/* Background Canvas */}
+        <canvas
+          ref={backgroundCanvasRef}
+          width={800}
+          height={600}
+          className="absolute top-0 left-0 w-full h-auto max-w-full"
+        />
+        
+        {/* Drawing Canvas */}
+        <canvas
+          ref={canvasRef}
+          width={800}
+          height={600}
+          className="relative cursor-crosshair w-full h-auto max-w-full touch-none"
+          onMouseDown={startDrawing}
+          onMouseMove={draw}
+          onMouseUp={stopDrawing}
+          onMouseLeave={stopDrawing}
+          onTouchStart={startDrawing}
+          onTouchMove={draw}
+          onTouchEnd={stopDrawing}
+          onTouchCancel={stopDrawing}
+          onWheel={handleWheel}
+          onContextMenu={(e) => e.preventDefault()} // Prevent context menu for right-click panning
+        />
+      </div>
     </div>
   );
 } 
